@@ -17,6 +17,23 @@ function arrayBufferToBase64(buffer: ArrayBuffer | null) {
 
 export async function subscribeToPushNotifications(): Promise<void> {
   try {
+    alert(
+  "standalone: " + (window.navigator as any).standalone + "\n" +
+  "display-mode: " + window.matchMedia("(display-mode: standalone)").matches + "\n" +
+  "Notification type: " + typeof (window as any).Notification
+);
+    // iOS / unsupported browser guard
+if (typeof window === "undefined" || typeof window.Notification === "undefined") {
+  alert(
+    "Notifications are not supported in this environment.\n\n" +
+    "If you're on iPhone:\n" +
+    "• Use Safari\n" +
+    "• iOS 16.4+\n" +
+    "• Add to Home Screen\n" +
+    "• Open from the Home Screen icon"
+  );
+  return;
+}
     const perm = await Notification.requestPermission();
     console.log("Permission result:", perm);
 
