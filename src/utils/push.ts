@@ -25,10 +25,19 @@ export async function subscribeToPushNotifications(): Promise<void> {
       return;
     }
 
+    if (!("serviceWorker" in navigator)) {
+      throw new Error("Service Worker not supported");
+    }
+    if (!("PushManager" in window)) {
+      throw new Error("Push notifications not supported");
+    }
+
     const registration = await navigator.serviceWorker.ready;
 
     const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY as string | undefined;
-    if (!vapidPublicKey) throw new Error("Missing VITE_VAPID_PUBLIC_KEY in env");
+    if (!vapidPublicKey) {
+      throw new Error("Missing VITE_VAPID_PUBLIC_KEY in env");
+    }
 
     const subscription = await registration.pushManager.subscribe({
       userVisibleOnly: true,
