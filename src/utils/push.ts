@@ -1,49 +1,68 @@
-/**
- * Converts a VAPID public key from a URL-safe base64 string to a Uint8Array.
- */
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
-  const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
-  }
-  return outputArray;
+import { supabase } from "../../lib/supabase"; // adjust path if needed
+
+function arrayBufferToBase64(buffer: ArrayBuffer | null) {
+  if (!buffer) return "";
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  bytes.forEach((b) => (binary += String.fromCharCode(b)));
+  return window.btoa(binary);
 }
 
-/**
- * Registers the service worker and subscribes the user to push notifications.
- */
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding)
+    .replace(/-/g, "+")
+    .replace(/_/g, "/");
+
+  const rawData = window.atob(base64);
+  return new Uint8Array([...rawData].map((c) => c.charCodeAt(0)));
+}
+
 export async function subscribeToPushNotifications(): Promise<void> {
   try {
-    const registration = await navigator.serviceWorker.register('/service-worker.js');
-    console.log('Service Worker registered:', registration);
+    // ✅ 1) Ask permission (this is missing in your code)
+    const perm = await Notification.requestPermission();
+    console.log("Permission result:", perm);
 
-    const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
-    if (!vapidPublicKey) {
-      throw new Error('VITE_VAPID_PUBLIC_KEY is not defined in the environment.');
+    if (perm !== "granted") {
+      alert("Please allow notifications to enable alerts.");
+      return;
     }
 
+    // ✅ 2) Use existing registered SW (don’t re-register every click)
+    const registration = await navigator.serviceWorker.ready;
+
+    // ✅ 3) Get VAPID key from env
+    const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
+    if (!vapidPublicKey) throw new Error("Missing VITE_VAPID_PUBLIC_KEY in env");
+
+    // ✅ 4) Subscribe
     const subscription = await registration.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
     });
 
-    console.log('Push subscription successful:', subscription);
+    console.log("Push subscription successful:", subscription);
 
-    // Send the subscription to the backend server
-    await fetch('/api/subscribe', {
-      method: 'POST',
-      body: JSON.stringify(subscription),
-      headers: {
-        'Content-Type': 'application/json',
-      },
+    // ✅ 5) Save to Supabase (Option 1)
+    const p256dh = arrayBufferToBase64(subscription.getKey("p256dh"));
+    const auth = arrayBufferToBase64(subscription.getKey("auth"));
+
+    const { error } = await supabase.from("push_subscriptions").upsert({
+      endpoint: subscription.endpoint,
+      p256dh,
+      auth,
     });
 
-    alert('You have been successfully subscribed to notifications!');
-  } catch (error) {
-    console.error('Failed to subscribe to push notifications:', error);
-    alert('Failed to subscribe to notifications. Please make sure you have granted permission.');
+    if (error) throw error;
+
+    alert("✅ You have been successfully subscribed to notifications!");
+  } } catch (error: any) {
+  console.error("Failed to subscribe to push notifications:", error);
+  console.error("name:", error?.name);
+  console.error("message:", error?.message);
+  console.error("stack:", error?.stack);
+
+  alert(`❌ Failed: ${error?.name ?? ""} ${error?.message ?? ""}`.trim());
+
   }
-}
