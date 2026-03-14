@@ -12,6 +12,8 @@ interface DashboardProps {
   activeUnitId: string;
   onReset: () => void;
   onResetCounter: () => void;
+  onResetChangeBank: () => void;
+  onClearAlerts: () => void;
   onExport: () => void;
   isResetting?: boolean;
 }
@@ -22,6 +24,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
   activeUnitId,
   onReset, 
   onResetCounter, 
+  onResetChangeBank,
+  onClearAlerts,
   onExport,
   isResetting = false
 }) => {
@@ -40,6 +44,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const totalCoins = p1 + p5 + p10;
   const p1ChangeStatus = getCoinStatus(changeBank.p1);
   const p5ChangeStatus = getCoinStatus(changeBank.p5);
+
+  const getStatusColor = (level: string) => {
+    switch (level) {
+      case 'OPTIMAL': return 'bg-emerald-500';
+      case 'NOTIFY': return 'bg-blue-500';
+      case 'REFILL_NEEDED': return 'bg-amber-500';
+      case 'REFILL_IMMEDIATELY': return 'bg-orange-600';
+      case 'EMPTY': return 'bg-red-600';
+      default: return 'bg-slate-500';
+    }
+  };
 
   const openRefillModal = (denomination: 'P1' | 'P5') => {
     setRefillDenomination(denomination);
@@ -74,100 +89,33 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const status = getWaterStatus();
 
   return (
-    <div className="space-y-8 sm:space-y-12 animate-in">
-      <header className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 sm:gap-8">
+    <div className="space-y-6 sm:space-y-12 animate-in">
+      <header className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 sm:gap-8">
         <div>
-          <div className="flex items-center gap-3 sm:gap-4 mb-2 sm:mb-3">
-             <div className="p-3 sm:p-4 bg-emerald-50 text-emerald-600 rounded-[16px] sm:rounded-[20px] shadow-sm border border-emerald-100">
-               <Zap className="w-6 h-6 sm:w-7 sm:h-7 animate-pulse" />
+          <div className="flex items-center gap-3 sm:gap-4 mb-1 sm:mb-3">
+             <div className="p-2.5 sm:p-4 bg-emerald-50 text-emerald-600 rounded-xl sm:rounded-[20px] shadow-sm border border-emerald-100">
+               <Zap className="w-5 h-5 sm:w-7 sm:h-7 animate-pulse" />
              </div>
-             <h1 className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tighter">System Console</h1>
+             <h1 className="text-2xl sm:text-4xl font-black text-slate-900 tracking-tighter">System Console</h1>
           </div>
-          <div className="flex items-center gap-3 sm:gap-4">
-            <span className="text-[9px] sm:text-[10px] font-black uppercase text-blue-600 tracking-widest bg-blue-50 px-2 sm:px-3 py-1 rounded-full border border-blue-100 flex items-center gap-1.5">
+          <div className="flex items-center gap-2 sm:gap-4">
+            <span className="text-[8px] sm:text-[10px] font-black uppercase text-blue-600 tracking-widest bg-blue-50 px-2 sm:px-3 py-1 rounded-full border border-blue-100 flex items-center gap-1">
               <Activity size={10} /> {activeUnitId}
             </span>
             <div className="h-3 sm:h-4 w-[1px] bg-slate-200" />
-            <span className="text-[9px] sm:text-[10px] font-black uppercase text-slate-400 tracking-widest">Last Telemetry: {state.lastUpdated}</span>
+            <span className="text-[8px] sm:text-[10px] font-black uppercase text-slate-400 tracking-widest">Last Telemetry: {state.lastUpdated}</span>
           </div>
         </div>
         
         <div className="flex items-center gap-3 sm:gap-4">
-            <button 
-                onClick={onResetCounter}
-                disabled={isResetting}
-                className={`flex-1 sm:flex-none flex items-center justify-center gap-2 sm:gap-3 px-6 sm:px-8 py-4 sm:py-5 rounded-[20px] sm:rounded-[24px] transition-all font-black text-[10px] sm:text-xs uppercase tracking-widest shadow-xl border-b-[4px] sm:border-b-[6px] active:border-b-0 active:translate-y-1 ${isResetting ? 'bg-slate-200 text-slate-400 border-slate-300 cursor-not-allowed' : 'bg-slate-900 text-white border-slate-700 hover:bg-slate-800'}`}
-            >
-                {isResetting ? <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
-                {isResetting ? 'Processing...' : 'Reset Counter'}
-            </button>
-            <button onClick={onExport} className="p-4 sm:p-5 bg-white text-slate-400 rounded-[20px] sm:rounded-[24px] border border-slate-100 hover:text-blue-600 hover:border-blue-100 transition-all shadow-lg active:scale-95">
-              <Download className="w-5 h-5 sm:w-6 sm:h-6" />
-            </button>
+            <div className="flex items-center gap-2 sm:gap-4 bg-slate-50 px-4 sm:px-8 py-2 sm:py-3 rounded-full border border-slate-100 shadow-inner">
+              <div className="w-2 h-2 sm:w-3 sm:h-3 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)] animate-pulse" />
+              <span className="text-[9px] sm:text-[11px] font-black uppercase text-slate-500 tracking-widest whitespace-nowrap">
+                System Active
+              </span>
+            </div>
         </div>
       </header>
-
-      <div>
-        <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 px-2">Inserted Coins</h3>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-          <StatsCard 
-            title="₱1 Inserted" 
-            value={p1} 
-            subtitle={`₱${(p1 * 1).toLocaleString()}`} 
-            icon={<Coins size={28} className="text-blue-600" />} 
-            iconBgColor="bg-blue-600" 
-            textColor="text-slate-900" 
-          />
-          <StatsCard 
-            title="₱5 Inserted" 
-            value={p5} 
-            subtitle={`₱${(p5 * 5).toLocaleString()}`} 
-            icon={<Coins size={28} className="text-emerald-600" />} 
-            iconBgColor="bg-emerald-600" 
-            textColor="text-slate-900" 
-          />
-          <StatsCard 
-            title="₱10 Inserted" 
-            value={p10} 
-            subtitle={`₱${(p10 * 10).toLocaleString()}`} 
-            icon={<Coins size={28} className="text-violet-600" />} 
-            iconBgColor="bg-violet-600" 
-            textColor="text-slate-900" 
-          />
-          <StatsCard 
-            title="Net Earnings" 
-            value={`₱${totalEarnings.toLocaleString()}`} 
-            subtitle={`${totalCoins} PCS`} 
-            icon={<DollarSign size={28} className="text-amber-600" />} 
-            iconBgColor="bg-amber-600" 
-            textColor="text-amber-600" 
-          />
-        </div>
-      </div>
-
-      <div className="mt-8 sm:mt-12">
-        <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 px-2">Change Bank Status</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-          <div onClick={() => openRefillModal('P1')} className="bg-white p-6 sm:p-8 rounded-[32px] border border-slate-100 shadow-xl flex justify-between items-center cursor-pointer">
-            <div>
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">P1 Change</p>
-              <span className="text-3xl sm:text-5xl font-black text-slate-800 tracking-tighter">{changeBank.p1}</span>
-            </div>
-            <div className={`px-4 py-2 rounded-full text-xs font-black text-white ${p1ChangeStatus.level === 'OK' ? 'bg-emerald-500' : p1ChangeStatus.level === 'LOW' ? 'bg-amber-500' : 'bg-red-500'}`}>
-              {p1ChangeStatus.text}
-            </div>
-          </div>
-          <div onClick={() => openRefillModal('P5')} className="bg-white p-6 sm:p-8 rounded-[32px] border border-slate-100 shadow-xl flex justify-between items-center cursor-pointer">
-            <div>
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">P5 Change</p>
-              <span className="text-3xl sm:text-5xl font-black text-slate-800 tracking-tighter">{changeBank.p5}</span>
-            </div>
-            <div className={`px-4 py-2 rounded-full text-xs font-black text-white ${p5ChangeStatus.level === 'OK' ? 'bg-emerald-500' : p5ChangeStatus.level === 'LOW' ? 'bg-amber-500' : 'bg-red-500'}`}>
-              {p5ChangeStatus.text}
-            </div>
-          </div>
-        </div>
-      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-8">
         <div className="bg-white p-6 sm:p-10 rounded-[32px] sm:rounded-[48px] border border-slate-100 shadow-xl flex items-center justify-between group overflow-hidden relative">
@@ -211,6 +159,103 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
       </div>
 
+      <div className="mt-8 sm:mt-12">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 px-2">
+          <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Change Bank Status</h3>
+          <button 
+              onClick={onResetChangeBank}
+              disabled={isResetting}
+              className={`flex items-center justify-center gap-2 px-4 sm:px-6 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl transition-all font-black text-[8px] sm:text-[9px] uppercase tracking-widest shadow-lg border-b-4 active:border-b-0 active:translate-y-1 ${isResetting ? 'bg-slate-200 text-slate-400 border-slate-300 cursor-not-allowed' : 'bg-slate-900 text-white border-slate-700 hover:bg-slate-800'}`}
+          >
+              {isResetting ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
+              {isResetting ? 'Processing...' : 'Reset Change Bank'}
+          </button>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+          <div 
+            onClick={() => openRefillModal('P1')}
+            className="bg-white p-6 sm:p-8 rounded-[32px] border border-slate-100 shadow-xl flex justify-between items-center cursor-pointer hover:border-blue-200 transition-all group"
+          >
+            <div>
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">P1 Change</p>
+              <span className="text-2xl sm:text-4xl font-black text-slate-800 tracking-tighter">
+                {changeBank.p1} PCS
+              </span>
+            </div>
+            <div className={`px-4 py-2 rounded-full text-[8px] sm:text-[10px] font-black text-white text-center min-w-[100px] ${getStatusColor(p1ChangeStatus.level)}`}>
+              {p1ChangeStatus.text}
+            </div>
+          </div>
+          <div 
+            onClick={() => openRefillModal('P5')}
+            className="bg-white p-6 sm:p-8 rounded-[32px] border border-slate-100 shadow-xl flex justify-between items-center cursor-pointer hover:border-blue-200 transition-all group"
+          >
+            <div>
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">P5 Change</p>
+              <span className="text-2xl sm:text-4xl font-black text-slate-800 tracking-tighter">
+                {changeBank.p5} PCS
+              </span>
+            </div>
+            <div className={`px-4 py-2 rounded-full text-[8px] sm:text-[10px] font-black text-white text-center min-w-[100px] ${getStatusColor(p5ChangeStatus.level)}`}>
+              {p5ChangeStatus.text}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 px-2">
+          <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Inserted Coins</h3>
+          <div className="flex items-center gap-3">
+            <button 
+                onClick={onResetCounter}
+                disabled={isResetting}
+                className={`flex items-center justify-center gap-2 px-6 py-3 rounded-2xl transition-all font-black text-[9px] uppercase tracking-widest shadow-lg border-b-4 active:border-b-0 active:translate-y-1 ${isResetting ? 'bg-slate-200 text-slate-400 border-slate-300 cursor-not-allowed' : 'bg-slate-900 text-white border-slate-700 hover:bg-slate-800'}`}
+            >
+                {isResetting ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
+                {isResetting ? 'Processing...' : 'Reset Counter'}
+            </button>
+            <button onClick={onExport} className="p-3 bg-white text-slate-400 rounded-2xl border border-slate-100 hover:text-blue-600 hover:border-blue-100 transition-all shadow-md active:scale-95">
+              <Download className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+          <StatsCard 
+            title="₱1 Inserted" 
+            value={p1} 
+            subtitle={`₱${(p1 * 1).toLocaleString()}`} 
+            icon={<Coins size={28} className="text-blue-600" />} 
+            iconBgColor="bg-blue-600" 
+            textColor="text-slate-900" 
+          />
+          <StatsCard 
+            title="₱5 Inserted" 
+            value={p5} 
+            subtitle={`₱${(p5 * 5).toLocaleString()}`} 
+            icon={<Coins size={28} className="text-emerald-600" />} 
+            iconBgColor="bg-emerald-600" 
+            textColor="text-slate-900" 
+          />
+          <StatsCard 
+            title="₱10 Inserted" 
+            value={p10} 
+            subtitle={`₱${(p10 * 10).toLocaleString()}`} 
+            icon={<Coins size={28} className="text-violet-600" />} 
+            iconBgColor="bg-violet-600" 
+            textColor="text-slate-900" 
+          />
+          <StatsCard 
+            title="Net Earnings" 
+            value={`₱${totalEarnings.toLocaleString()}`} 
+            subtitle={`${totalCoins} PCS`} 
+            icon={<DollarSign size={28} className="text-amber-600" />} 
+            iconBgColor="bg-amber-600" 
+            textColor="text-amber-600" 
+          />
+        </div>
+      </div>
+
       {isRefillModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-[#0f172a]/80 backdrop-blur-md animate-in">
           <div className="bg-white rounded-[32px] sm:rounded-[48px] shadow-[0_40px_100px_rgba(0,0,0,0.3)] w-full max-w-md overflow-hidden">
@@ -240,14 +285,22 @@ export const Dashboard: React.FC<DashboardProps> = ({
       {showAlertModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-[#0f172a]/80 backdrop-blur-md animate-in">
           <div className="bg-white rounded-[32px] sm:rounded-[48px] shadow-[0_40px_100px_rgba(0,0,0,0.3)] w-full max-w-xl overflow-hidden">
-            <div className="p-6 sm:p-10 border-b border-slate-50 flex justify-between items-center">
+            <div className="p-6 sm:p-10 border-b border-slate-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
               <div>
                 <h3 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tighter">System Alerts & Logs</h3>
                 <p className="text-[9px] sm:text-[10px] text-slate-400 font-black uppercase tracking-widest">Active Audit Loop</p>
               </div>
-              <button onClick={() => setShowAlertModal(false)} className="p-3 sm:p-4 hover:bg-slate-100 rounded-[16px] sm:rounded-[20px] transition-all">
-                <X className="w-5 h-5 sm:w-6 sm:h-6" />
-              </button>
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
+                <button 
+                  onClick={onClearAlerts}
+                  className="px-4 py-2 bg-slate-100 text-slate-600 font-black text-[8px] sm:text-[9px] uppercase tracking-widest rounded-xl hover:bg-red-50 hover:text-red-600 transition-all border border-slate-200"
+                >
+                  Clear History
+                </button>
+                <button onClick={() => setShowAlertModal(false)} className="p-2 sm:p-4 hover:bg-slate-100 rounded-[12px] sm:rounded-[20px] transition-all">
+                  <X className="w-5 h-5 sm:w-6 sm:h-6" />
+                </button>
+              </div>
             </div>
             <div className="p-6 sm:p-10 space-y-4 sm:space-y-5 max-h-[50vh] overflow-y-auto custom-scrollbar">
               {alerts.map((alert) => (

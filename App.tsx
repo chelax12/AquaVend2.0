@@ -251,13 +251,26 @@ useEffect(() => {
   fetchHistory();
   fetchAlerts();
 
+  // Real-time subscription for machine_state
+  const subscription = supabase
+    .channel(`machine_state:${activeUnitId}`)
+    .on('postgres_changes', 
+      { event: '*', schema: 'public', table: 'machine_state', filter: `unit_id=eq.${activeUnitId}` },
+      (payload) => {
+        if (payload.new) {
+          setState(prev => ({
+            ...prev,
+            ...transformDataToNewState(payload.new),
+            history: prev.history,
+          }));
+        }
+      }
+    )
+    .subscribe();
 
-  // poll machine_state every 3 seconds
-  const id = window.setInterval(() => {
-    fetchMachineState();
-  }, 3000);
-
-  return () => window.clearInterval(id);
+  return () => {
+    supabase.removeChannel(subscription);
+  };
 }, [session, activeUnitId, fetchMachineState, fetchHistory, fetchAlerts]);
 
 
@@ -298,11 +311,17 @@ useEffect(() => {
     if (!confirmDelete) return;
 
     try {
-      // Delete from devices table first to remove ownership
+      // 1. Delete associated history records first
+      await supabase.from('collection_history').delete().eq('unit_id', unitIdToDelete);
+      
+      // 2. Delete associated system alerts
+      await supabase.from('system_alerts').delete().eq('unit_id', unitIdToDelete);
+
+      // 3. Delete from devices table to remove ownership
       const { error: deviceError } = await supabase.from('devices').delete().eq('unit_id', unitIdToDelete);
       if (deviceError) throw deviceError;
 
-      // Then delete the state data
+      // 4. Finally delete the state data
       const { error: stateError } = await supabase.from('machine_state').delete().eq('unit_id', unitIdToDelete);
       if (stateError) throw stateError;
 
@@ -464,6 +483,95 @@ useEffect(() => {
     }
   };
 
+  const handleResetChangeBank = async () => {
+    if (!session?.user || !activeUnitId) return;
+
+    const confirmReset = window.confirm(
+      `CONFIRM CHANGE BANK RESET for ${activeUnitId}\n\nThis will zero out both P1 and P5 change hoppers. Are you sure?`
+    );
+    if (!confirmReset) return;
+
+    setIsResetting(true);
+
+    try {
+      const { error } = await supabase
+        .from("machine_state")
+        .update({
+          change_p1_count: 0,
+          change_p5_count: 0,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("unit_id", activeUnitId);
+
+      if (error) throw error;
+
+      // Log the reset event
+      await supabase.from('system_alerts').insert([{
+        unit_id: activeUnitId,
+        type: 'Change Bank Reset',
+        message: `Change bank hoppers were reset to zero.`,
+        severity: 'medium'
+      }]);
+
+      alert(`Success: Change bank for ${activeUnitId} reset to 0 PCS.`);
+    } catch (err: any) {
+      console.error("CHANGE BANK RESET FAILED:", err);
+      alert(`RESET FAILED: ${err?.message ?? String(err)}`);
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
+  const handleClearHistory = async () => {
+    if (!session?.user || !activeUnitId) return;
+
+    const confirmClear = window.confirm(
+      `Are you sure you want to permanently clear all settlement history for machine ${activeUnitId}?\n\nThis action cannot be undone.`
+    );
+    if (!confirmClear) return;
+
+    try {
+      const { error } = await supabase
+        .from('collection_history')
+        .delete()
+        .eq('unit_id', activeUnitId);
+
+      if (error) throw error;
+
+      // Update local state
+      setState(prev => ({ ...prev, history: [] }));
+      alert('Settlement history cleared successfully.');
+    } catch (err: any) {
+      console.error('Clear history error:', err);
+      alert(`Failed to clear history: ${err.message}`);
+    }
+  };
+
+  const handleClearAlerts = async () => {
+    if (!session?.user || !activeUnitId) return;
+
+    const confirmClear = window.confirm(
+      `Are you sure you want to permanently clear all system alerts for machine ${activeUnitId}?\n\nThis action cannot be undone.`
+    );
+    if (!confirmClear) return;
+
+    try {
+      const { error } = await supabase
+        .from('system_alerts')
+        .delete()
+        .eq('unit_id', activeUnitId);
+
+      if (error) throw error;
+
+      // Update local state
+      setAlerts([]);
+      alert('System alerts cleared successfully.');
+    } catch (err: any) {
+      console.error('Clear alerts error:', err);
+      alert(`Failed to clear alerts: ${err.message}`);
+    }
+  };
+
   const handleExport = useCallback(() => {
     if (state.history.length === 0) {
       alert('No history to export.');
@@ -498,7 +606,7 @@ useEffect(() => {
   const renderSection = () => {
     switch (activeSection) {
       case Section.DASHBOARD:
-        return <Dashboard state={state} alerts={alerts} activeUnitId={activeUnitId} onReset={fetchAllData} onResetCounter={handleResetCounter} onExport={handleExport} isResetting={isResetting} />;
+        return <Dashboard state={state} alerts={alerts} activeUnitId={activeUnitId} onReset={fetchAllData} onResetCounter={handleResetCounter} onResetChangeBank={handleResetChangeBank} onClearAlerts={handleClearAlerts} onExport={handleExport} isResetting={isResetting} />;
       case Section.WATER:
         return (
           <div className="space-y-6 sm:space-y-8 animate-in max-w-4xl mx-auto">
@@ -551,11 +659,19 @@ useEffect(() => {
       case Section.HISTORY:
         return (
           <div className="space-y-6 animate-in">
-            <div className="flex justify-between items-end mb-6">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4 mb-6">
               <div>
                 <h1 className="text-2xl sm:text-3xl font-black text-[#0f172a] tracking-tight">Settlement History</h1>
                 <p className="text-xs sm:text-sm text-slate-500 font-medium">Archive of all collections for {activeUnitId}</p>
               </div>
+              <button 
+                onClick={handleClearHistory}
+                disabled={state.history.length === 0}
+                className="flex items-center gap-2 px-6 py-3 bg-red-50 text-red-600 border border-red-100 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-red-600 hover:text-white transition-all disabled:opacity-30 disabled:hover:bg-red-50 disabled:hover:text-red-600"
+              >
+                <Trash2 size={14} />
+                Clear History
+              </button>
             </div>
 
             {/* Mobile View: Cards */}
@@ -635,46 +751,46 @@ useEffect(() => {
       case Section.SETTINGS:
         return (
           <div className="space-y-6 animate-in">
-            <h1 className="text-3xl font-black text-[#0f172a] tracking-tight">System Configuration</h1>
-            <div className="bg-white p-12 rounded-[48px] border border-slate-100 shadow-xl space-y-10">
-                <div className="flex items-center gap-8 p-8 bg-blue-50/50 rounded-[36px] border border-blue-100">
-                  <div className="w-16 h-16 bg-blue-600 rounded-[24px] flex items-center justify-center text-white shadow-2xl">
-                    <Monitor size={32} />
+            <h1 className="text-2xl sm:text-3xl font-black text-[#0f172a] tracking-tight">System Configuration</h1>
+            <div className="bg-white p-6 sm:p-12 rounded-[24px] sm:rounded-[48px] border border-slate-100 shadow-xl space-y-6 sm:space-y-10">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-8 p-6 sm:p-8 bg-blue-50/50 rounded-[20px] sm:rounded-[36px] border border-blue-100">
+                  <div className="w-12 h-12 sm:w-16 sm:h-16 bg-blue-600 rounded-xl sm:rounded-[24px] flex items-center justify-center text-white shadow-2xl">
+                    <Monitor className="w-6 h-6 sm:w-8 sm:h-8" />
                   </div>
                   <div>
-                    <h4 className="font-black text-slate-900 text-xl tracking-tight">Machine Fleet Management</h4>
-                    <p className="text-sm text-slate-500 mt-1 font-medium italic opacity-70">Managing {unitList.length} total vending nodes.</p>
+                    <h4 className="font-black text-slate-900 text-lg sm:text-xl tracking-tight">Machine Fleet Management</h4>
+                    <p className="text-xs sm:text-sm text-slate-500 mt-1 font-medium italic opacity-70">Managing {unitList.length} total vending nodes.</p>
                   </div>
                 </div>
                 
                 <div className="space-y-4">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-4">Active Fleet List</label>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <label className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest px-2 sm:px-4">Active Fleet List</label>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
                       {unitList.map(unit => (
-                        <div key={unit} className={`p-6 rounded-[28px] border flex items-center justify-between transition-all ${activeUnitId === unit ? 'bg-blue-600 border-blue-600 text-white shadow-xl shadow-blue-200' : 'bg-white border-slate-100 text-slate-600'}`}>
-                           <span className="font-black text-sm tracking-tight">{unit}</span>
+                        <div key={unit} className={`p-4 sm:p-6 rounded-[20px] sm:rounded-[28px] border flex items-center justify-between transition-all ${activeUnitId === unit ? 'bg-blue-600 border-blue-600 text-white shadow-xl shadow-blue-200' : 'bg-white border-slate-100 text-slate-600'}`}>
+                           <span className="font-black text-xs sm:text-sm tracking-tight">{unit}</span>
                            <div className="flex items-center gap-2">
-                              {activeUnitId !== unit && <button onClick={() => handleDeleteUnit(unit)} className="text-[10px] font-black uppercase tracking-widest opacity-40 hover:opacity-100 text-red-500">Delete</button>}
+                              {activeUnitId !== unit && <button onClick={() => handleDeleteUnit(unit)} className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest opacity-40 hover:opacity-100 text-red-500">Delete</button>}
                               {activeUnitId === unit ? <CheckCircle2 size={18} /> : (
-                                <button onClick={() => setActiveUnitId(unit)} className="text-[10px] font-black uppercase tracking-widest opacity-40 hover:opacity-100 underline decoration-2">Select</button>
+                                <button onClick={() => setActiveUnitId(unit)} className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest opacity-40 hover:opacity-100 underline decoration-2">Select</button>
                               )}
                             </div>
                         </div>
                       ))}
-                      <button onClick={() => setShowAddUnit(true)} className="p-6 rounded-[28px] border-2 border-dashed border-slate-200 flex items-center justify-center gap-3 text-slate-400 hover:border-blue-400 hover:text-blue-600 transition-all font-black text-[10px] uppercase tracking-widest">
+                      <button onClick={() => setShowAddUnit(true)} className="p-4 sm:p-6 rounded-[20px] sm:rounded-[28px] border-2 border-dashed border-slate-200 flex items-center justify-center gap-3 text-slate-400 hover:border-blue-400 hover:text-blue-600 transition-all font-black text-[9px] sm:text-[10px] uppercase tracking-widest">
                         <Plus size={18} /> Add Machine
                       </button>
                     </div>
                 </div>
 
-                <div className="flex items-center gap-8 p-8 bg-green-50/50 rounded-[36px] border border-green-100">
-                  <div className="w-16 h-16 bg-green-600 rounded-[24px] flex items-center justify-center text-white shadow-2xl">
-                    <Zap size={32} />
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-8 p-6 sm:p-8 bg-green-50/50 rounded-[20px] sm:rounded-[36px] border border-green-100">
+                  <div className="w-12 h-12 sm:w-16 sm:h-16 bg-green-600 rounded-xl sm:rounded-[24px] flex items-center justify-center text-white shadow-2xl">
+                    <Zap className="w-6 h-6 sm:w-8 sm:h-8" />
                   </div>
                   <div>
-                    <h4 className="font-black text-slate-900 text-xl tracking-tight">Real-Time Alerts</h4>
-                    <p className="text-sm text-slate-500 mt-1 font-medium italic opacity-70">Enable push notifications to receive alerts on your device.</p>
-                    <button onClick={subscribeToPushNotifications} className="mt-4 px-6 py-3 bg-green-600 text-white font-black text-[11px] uppercase tracking-widest rounded-[24px] shadow-xl shadow-green-200">Enable Notifications</button>
+                    <h4 className="font-black text-slate-900 text-lg sm:text-xl tracking-tight">Real-Time Alerts</h4>
+                    <p className="text-xs sm:text-sm text-slate-500 mt-1 font-medium italic opacity-70">Enable push notifications to receive alerts on your device.</p>
+                    <button onClick={subscribeToPushNotifications} className="mt-4 px-5 sm:px-6 py-2.5 sm:py-3 bg-green-600 text-white font-black text-[10px] sm:text-[11px] uppercase tracking-widest rounded-full sm:rounded-[24px] shadow-xl shadow-green-200">Enable Notifications</button>
                   </div>
                 </div>
 
@@ -740,31 +856,35 @@ useEffect(() => {
 
       {/* Main Content */}
       <main className="flex-1 lg:ml-80 flex flex-col min-h-screen relative pb-24 lg:pb-0">
-        <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-2xl border-b border-slate-100 px-4 sm:px-8 lg:px-12 py-4 sm:py-6 lg:py-8 flex items-center justify-between shadow-sm">
-          <div className="flex items-center gap-3 sm:gap-6">
-            <button onClick={() => setIsSidebarOpen(true)} className="lg:hidden p-2 sm:p-4 text-slate-500 hover:bg-slate-100 rounded-2xl transition-all">
+        <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-2xl border-b border-slate-100 px-3 sm:px-8 lg:px-12 py-3 sm:py-6 lg:py-8 flex items-center justify-between shadow-sm gap-2">
+          <div className="flex items-center gap-2 sm:gap-6 min-w-0 flex-1">
+            <button onClick={() => setIsSidebarOpen(true)} className="lg:hidden p-2 text-slate-500 hover:bg-slate-100 rounded-xl transition-all shrink-0">
               <Menu size={20} />
             </button>
             
-            <div className="flex items-center gap-2 sm:gap-4 bg-slate-100 p-1.5 sm:p-2 rounded-[20px] sm:rounded-[24px] overflow-x-auto no-scrollbar max-w-[180px] sm:max-w-none">
+            <div className="flex items-center gap-1.5 sm:gap-3 bg-slate-50 p-1 rounded-full border border-slate-100 overflow-x-auto no-scrollbar shadow-inner min-w-0">
                 {unitList.map(unit => (
                    <button 
                     key={unit} 
                     onClick={() => setActiveUnitId(unit)}
-                    className={`px-3 sm:px-5 py-1.5 sm:py-2.5 rounded-[14px] sm:rounded-[18px] text-[9px] sm:text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeUnitId === unit ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                    className={`px-2 sm:px-7 py-1 sm:py-3 rounded-full text-[7px] sm:text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeUnitId === unit ? 'bg-white text-blue-600 shadow-sm border border-slate-100' : 'text-slate-400 hover:text-slate-600'}`}
                    >
                     {unit}
                    </button>
                 ))}
-                <button onClick={() => setShowAddUnit(true)} className="flex-shrink-0 w-8 h-8 sm:w-10 sm:h-10 bg-white text-slate-400 rounded-[14px] sm:rounded-[18px] flex items-center justify-center hover:text-blue-600 transition-all shadow-sm">
-                  <Plus size={16} />
+                <button 
+                  onClick={() => setShowAddUnit(true)} 
+                  className="flex-shrink-0 w-6 h-6 sm:w-11 sm:h-11 bg-white text-slate-400 rounded-full flex items-center justify-center hover:text-blue-600 transition-all shadow-sm active:scale-90 border border-slate-100"
+                >
+                  <Plus size={12} className="sm:hidden" />
+                  <Plus size={18} className="hidden sm:block" />
                 </button>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-4 bg-slate-50 px-3 sm:px-8 py-2 sm:py-3 rounded-full border border-slate-100 shadow-inner">
-            <div className={`w-2 h-2 sm:w-3 sm:h-3 rounded-full transition-colors duration-500 ${dbStatus === 'connected' ? 'bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.8)] animate-pulse' : dbStatus === 'reconnecting' ? 'bg-amber-500' : 'bg-red-500'}`} />
-            <span className="text-[9px] sm:text-[11px] font-black uppercase text-slate-500 tracking-[0.1em] sm:tracking-[0.2em] whitespace-nowrap">
+          <div className="flex items-center gap-1.5 sm:gap-2 bg-slate-50 px-2 sm:px-3 py-1.5 sm:py-2 rounded-full border border-slate-100 shadow-inner shrink-0">
+            <div className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full transition-colors duration-500 ${dbStatus === 'connected' ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)] animate-pulse' : dbStatus === 'reconnecting' ? 'bg-amber-500' : 'bg-red-500'}`} />
+            <span className="text-[7px] sm:text-[9px] font-black uppercase text-slate-500 tracking-widest whitespace-nowrap">
               {dbStatus === 'connected' ? 'Online' : dbStatus === 'reconnecting' ? 'Syncing' : 'Offline'}
             </span>
           </div>

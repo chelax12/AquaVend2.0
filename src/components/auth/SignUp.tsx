@@ -116,7 +116,7 @@ export const SignUp: React.FC<SignUpProps> = ({ onShowLogin }) => {
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               className="w-full p-4 pl-14 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all font-bold text-slate-700"
-              placeholder="+1 234 567 890"
+              placeholder="+63 912 345 6789"
             />
           </div>
         )}

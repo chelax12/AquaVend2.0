@@ -1,59 +1,37 @@
-import { supabase } from "../../lib/supabase";
+/**
+ * Converts a VAPID public key from a URL-safe base64 string to a Uint8Array.
+ */
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  if (!base64String || typeof base64String !== 'string') {
+    throw new Error('Invalid VAPID public key format.');
+  }
 
-function urlBase64ToUint8Array(base64String: string) {
-  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
-  const rawData = window.atob(base64);
-  return new Uint8Array([...rawData].map((c) => c.charCodeAt(0)));
+  try {
+    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+  } catch (error) {
+    console.error('Error decoding VAPID public key:', error);
+    throw new Error('The VAPID public key is not correctly encoded. Please check your environment variables.');
+  }
 }
 
-function arrayBufferToBase64(buffer: ArrayBuffer | null) {
-  if (!buffer) return "";
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  bytes.forEach((b) => (binary += String.fromCharCode(b)));
-  return window.btoa(binary);
-}
-
+/**
+ * Registers the service worker and subscribes the user to push notifications.
+ */
 export async function subscribeToPushNotifications(): Promise<void> {
   try {
-    alert(
-  "standalone: " + (window.navigator as any).standalone + "\n" +
-  "display-mode: " + window.matchMedia("(display-mode: standalone)").matches + "\n" +
-  "Notification type: " + typeof (window as any).Notification
-);
-    // iOS / unsupported browser guard
-if (typeof window === "undefined" || typeof window.Notification === "undefined") {
-  alert(
-    "Notifications are not supported in this environment.\n\n" +
-    "If you're on iPhone:\n" +
-    "• Use Safari\n" +
-    "• iOS 16.4+\n" +
-    "• Add to Home Screen\n" +
-    "• Open from the Home Screen icon"
-  );
-  return;
-}
-    const perm = await Notification.requestPermission();
-    console.log("Permission result:", perm);
+    const registration = await navigator.serviceWorker.register('/service-worker.js');
+    console.log('Service Worker registered:', registration);
 
-    if (perm !== "granted") {
-      alert("Please allow notifications to enable alerts.");
-      return;
-    }
-
-    if (!("serviceWorker" in navigator)) {
-      throw new Error("Service Worker not supported");
-    }
-    if (!("PushManager" in window)) {
-      throw new Error("Push notifications not supported");
-    }
-
-    const registration = await navigator.serviceWorker.ready;
-
-    const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY as string | undefined;
-    if (!vapidPublicKey) {
-      throw new Error("Missing VITE_VAPID_PUBLIC_KEY in env");
+    const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
+    if (!vapidPublicKey || vapidPublicKey.trim() === '') {
+      throw new Error('Push notifications are not configured. VITE_VAPID_PUBLIC_KEY is missing.');
     }
 
     const subscription = await registration.pushManager.subscribe({
@@ -61,25 +39,20 @@ if (typeof window === "undefined" || typeof window.Notification === "undefined")
       applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
     });
 
-    console.log("Push subscription successful:", subscription);
+    console.log('Push subscription successful:', subscription);
 
-    const p256dh = arrayBufferToBase64(subscription.getKey("p256dh"));
-    const auth = arrayBufferToBase64(subscription.getKey("auth"));
-
-    const { error } = await supabase.from("push_subscriptions").upsert({
-      endpoint: subscription.endpoint,
-      p256dh,
-      auth,
+    // Send the subscription to the backend server
+    await fetch('/api/subscribe', {
+      method: 'POST',
+      body: JSON.stringify(subscription),
+      headers: {
+        'Content-Type': 'application/json',
+      },
     });
 
-    if (error) throw error;
-
-    alert("✅ You have been successfully subscribed to notifications!");
-  } catch (error: any) {
-    console.error("Failed to subscribe to push notifications:", error);
-    console.error("name:", error?.name);
-    console.error("message:", error?.message);
-    console.error("stack:", error?.stack);
-    alert(`❌ Failed: ${error?.name ?? ""} ${error?.message ?? ""}`.trim());
+    alert('You have been successfully subscribed to notifications!');
+  } catch (error) {
+    console.error('Failed to subscribe to push notifications:', error);
+    alert('Failed to subscribe to notifications. Please make sure you have granted permission.');
   }
 }
