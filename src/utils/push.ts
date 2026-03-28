@@ -1,58 +1,53 @@
 /**
  * Converts a VAPID public key from a URL-safe base64 string to a Uint8Array.
  */
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
-  if (!base64String || typeof base64String !== 'string') {
-    throw new Error('Invalid VAPID public key format.');
-  }
-
-  try {
-    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-    const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
-    const rawData = window.atob(base64);
-    const outputArray = new Uint8Array(rawData.length);
-    for (let i = 0; i < rawData.length; ++i) {
-      outputArray[i] = rawData.charCodeAt(i);
-    }
-    return outputArray;
-  } catch (error) {
-    console.error('Error decoding VAPID public key:', error);
-    throw new Error('The VAPID public key is not correctly encoded. Please check your environment variables.');
-  }
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = window.atob(base64);
+  return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
 }
 
-/**
- * Registers the service worker and subscribes the user to push notifications.
- */
-export async function subscribeToPushNotifications(): Promise<void> {
-  try {
-    const registration = await navigator.serviceWorker.register('/service-worker.js');
-    console.log('Service Worker registered:', registration);
-
-    const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
-    if (!vapidPublicKey || vapidPublicKey.trim() === '') {
-      throw new Error('Push notifications are not configured. VITE_VAPID_PUBLIC_KEY is missing.');
-    }
-
-    const subscription = await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
-    });
-
-    console.log('Push subscription successful:', subscription);
-
-    // Send the subscription to the backend server
-    await fetch('/api/subscribe', {
-      method: 'POST',
-      body: JSON.stringify(subscription),
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
-
-    alert('You have been successfully subscribed to notifications!');
-  } catch (error) {
-    console.error('Failed to subscribe to push notifications:', error);
-    alert('Failed to subscribe to notifications. Please make sure you have granted permission.');
+export async function enableWebPush(supabase: any, userId: string, unitId: string) {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+    throw new Error("Push notifications are not supported on this browser.");
   }
+
+  const permission = await Notification.requestPermission();
+  if (permission !== "granted") {
+    throw new Error("Notification permission was not granted.");
+  }
+
+  const registration = await navigator.serviceWorker.register(`${import.meta.env.BASE_URL}service-worker.js`);
+  const existing = await registration.pushManager.getSubscription();
+
+  const subscription =
+    existing ||
+    (await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(
+        import.meta.env.VITE_VAPID_PUBLIC_KEY
+      ),
+    }));
+
+  const json = subscription.toJSON();
+
+  const endpoint = json.endpoint!;
+  const p256dh = json.keys?.p256dh!;
+  const auth = json.keys?.auth!;
+
+  const { error } = await supabase.from("push_subscriptions").upsert(
+    {
+      user_id: userId,
+      unit_id: unitId,
+      endpoint,
+      p256dh,
+      auth,
+    },
+    { onConflict: "endpoint" }
+  );
+
+  if (error) throw error;
+
+  return subscription;
 }

@@ -9,3 +9,4 @@ await fetch("https://xohzusvwwyrkqpnljtbh.supabase.co/functions/v1/send-alert-pu
     body: "Water level reached critical level",
   }),
 });
+export {};
