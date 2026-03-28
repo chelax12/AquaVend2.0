@@ -986,6 +986,22 @@ useEffect(() => {
           {renderSection()}
         </div>
 
+        {/* Bottom Navigation for Mobile */}
+        <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-100 px-2 py-2 flex justify-around items-center z-[100] shadow-[0_-4px_20px_rgba(0,0,0,0.05)]">
+          {NAV_ITEMS.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => setActiveSection(item.id as Section)}
+              className={`flex flex-col items-center gap-1 min-w-[64px] transition-all ${activeSection === item.id ? 'text-blue-600' : 'text-slate-400'}`}
+            >
+              <div className={`p-2 rounded-xl transition-all ${activeSection === item.id ? 'bg-blue-50' : ''}`}>
+                {item.icon}
+              </div>
+              <span className="text-[8px] font-black uppercase tracking-widest">{item.label}</span>
+            </button>
+          ))}
+        </nav>
+
         {/* Modal for Adding Unit */}
         {showAddUnit && (
           <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-md">

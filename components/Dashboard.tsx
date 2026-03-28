@@ -222,7 +222,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </button>
           </div>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 sm:gap-6">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 sm:gap-6">
           <StatsCard 
             title="₱1 INSERTED" 
             value={p1} 
@@ -258,7 +258,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <StatsCard 
             title="ESTIMATED PROFIT" 
             value={`₱${estimatedProfit.toLocaleString()}`} 
-            subtitle={`${state.totalVends || 0} SUCCESSFUL VENDS`} 
+            subtitle={`${state.totalVends || 0} PCS`} 
             icon={<Zap size={28} className="text-violet-600" />} 
             iconBgColor="bg-violet-600" 
             textColor="text-slate-900" 
