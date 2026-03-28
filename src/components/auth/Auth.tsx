@@ -19,7 +19,7 @@ export const Auth: React.FC = () => {
       </div>
 
       <footer className="absolute bottom-8 text-slate-400 text-[10px] font-black uppercase tracking-[0.2em]">
-        © 2025 Aquaflow Fleet Services
+        © 2025 Aquavendo Fleet Services
       </footer>
     </div>
   );

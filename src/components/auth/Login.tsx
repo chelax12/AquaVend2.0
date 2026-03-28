@@ -60,7 +60,7 @@ export const Login: React.FC<LoginProps> = ({ onShowSignUp }) => {
         <div className="w-16 h-16 bg-blue-600 rounded-3xl flex items-center justify-center text-white shadow-lg shadow-blue-600/30 mb-4">
           <Zap size={32} />
         </div>
-        <h1 className="text-2xl font-black text-slate-800 tracking-tight">AQUAVEND</h1>
+        <h1 className="text-2xl font-black text-slate-800 tracking-tight">AQUAVENDO</h1>
         <h2 className="text-xl font-bold text-slate-600 tracking-tight">Owner Login</h2>
         <p className="text-sm text-slate-500 mt-1">Access your fleet dashboard</p>
       </div>
@@ -123,7 +123,7 @@ export const Login: React.FC<LoginProps> = ({ onShowSignUp }) => {
         onClick={handleGoogleLogin}
         className="w-full p-4 bg-white border border-slate-200 text-slate-600 font-bold rounded-2xl hover:bg-slate-50 transition-colors flex items-center justify-center gap-3"
       >
-        <img src="/google.svg" alt="Google" className="w-5 h-5" />
+        <img src={`${import.meta.env.BASE_URL}google.svg`} alt="Google" className="w-5 h-5" />
         Continue with Google
       </button>
 

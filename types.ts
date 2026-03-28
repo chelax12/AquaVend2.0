@@ -30,6 +30,8 @@ export interface HistoryEntry {
   p5: number;
   p10: number;
   total: number;
+  vends: number;
+  estimatedProfit: number;
 }
 
 export interface VendoState {
@@ -41,5 +43,6 @@ export interface VendoState {
   lastSeen: string | null;
   history: HistoryEntry[];
   alerts: SystemAlert[];
-
+  totalVends: number;
+  estimatedProfit: number;
 }

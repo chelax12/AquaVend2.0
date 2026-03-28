@@ -118,3 +118,40 @@ async function startServer() {
 }
 
 startServer();
+
+import webpush from "web-push";
+
+webpush.setVapidDetails(
+  "mailto:axsiltokik@gmail.com",
+  process.env.VITE_VAPID_PUBLIC_KEY!,
+  process.env.VAPID_PRIVATE_KEY!
+);
+
+type PushRow = {
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+};
+
+async function sendWebPushToSubscriptions(
+  subscriptions: PushRow[],
+  payload: { title: string; body: string; url?: string }
+) {
+  const body = JSON.stringify(payload);
+
+  for (const sub of subscriptions) {
+    const pushSubscription = {
+      endpoint: sub.endpoint,
+      keys: {
+        p256dh: sub.p256dh,
+        auth: sub.auth,
+      },
+    };
+
+    try {
+      await webpush.sendNotification(pushSubscription, body);
+    } catch (err: any) {
+      console.error("Push send failed:", err?.statusCode || err?.message || err);
+    }
+  }
+}

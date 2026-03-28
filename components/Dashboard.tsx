@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { StatsCard } from './StatsCard';
-import { Coins, DollarSign, Droplets, AlertTriangle, Activity, RotateCcw, X, Info, Loader2, Zap, Download, ChevronRight } from 'lucide-react';
+import { Coins, DollarSign, TrendingUp, Droplets, AlertTriangle, Activity, RotateCcw, X, Info, Loader2, Zap, Download, ChevronRight } from 'lucide-react';
 import { VendoState, SystemAlert } from '../types';
 import { getCoinStatus } from '../src/utils';
 import { supabase } from '../lib/supabase';
@@ -40,7 +40,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
   } = state || {};
 
   const { p1, p5, p10 } = insertedCoins;
-  const totalEarnings = (p1 * 1) + (p5 * 5) + (p10 * 10);
+  const cashOnHand = (p1 * 1) + (p5 * 5) + (p10 * 10);
+  const totalSales = (state.totalVends || 0) * 1;
+  const estimatedProfit = state.estimatedProfit;
   const totalCoins = p1 + p5 + p10;
   const p1ChangeStatus = getCoinStatus(changeBank.p1);
   const p5ChangeStatus = getCoinStatus(changeBank.p5);
@@ -205,7 +207,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
       <div>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 px-2">
-          <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Inserted Coins</h3>
+          <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">INSERTED COINS</h3>
           <div className="flex items-center gap-3">
             <button 
                 onClick={onResetCounter}
@@ -220,38 +222,46 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </button>
           </div>
         </div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 sm:gap-6">
           <StatsCard 
-            title="₱1 Inserted" 
+            title="₱1 INSERTED" 
             value={p1} 
-            subtitle={`₱${(p1 * 1).toLocaleString()}`} 
+            subtitle={`₱${p1 * 1}`} 
             icon={<Coins size={28} className="text-blue-600" />} 
             iconBgColor="bg-blue-600" 
             textColor="text-slate-900" 
           />
           <StatsCard 
-            title="₱5 Inserted" 
+            title="₱5 INSERTED" 
             value={p5} 
-            subtitle={`₱${(p5 * 5).toLocaleString()}`} 
+            subtitle={`₱${p5 * 5}`} 
             icon={<Coins size={28} className="text-emerald-600" />} 
             iconBgColor="bg-emerald-600" 
             textColor="text-slate-900" 
           />
           <StatsCard 
-            title="₱10 Inserted" 
+            title="₱10 INSERTED" 
             value={p10} 
-            subtitle={`₱${(p10 * 10).toLocaleString()}`} 
+            subtitle={`₱${p10 * 10}`} 
             icon={<Coins size={28} className="text-violet-600" />} 
             iconBgColor="bg-violet-600" 
             textColor="text-slate-900" 
           />
           <StatsCard 
-            title="Net Earnings" 
-            value={`₱${totalEarnings.toLocaleString()}`} 
+            title="NET EARNINGS" 
+            value={`₱${cashOnHand.toLocaleString()}`} 
             subtitle={`${totalCoins} PCS`} 
             icon={<DollarSign size={28} className="text-amber-600" />} 
             iconBgColor="bg-amber-600" 
             textColor="text-amber-600" 
+          />
+          <StatsCard 
+            title="ESTIMATED PROFIT" 
+            value={`₱${estimatedProfit.toLocaleString()}`} 
+            subtitle={`${state.totalVends || 0} SUCCESSFUL VENDS`} 
+            icon={<Zap size={28} className="text-violet-600" />} 
+            iconBgColor="bg-violet-600" 
+            textColor="text-slate-900" 
           />
         </div>
       </div>

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { supabase } from '../../../lib/supabase';
 import { Zap, Mail, KeyRound, Loader2, ShieldCheck, Phone } from 'lucide-react';
+import { claimDevice } from '../../lib/deviceService';
 
 interface SignUpProps {
   onShowLogin: () => void;
@@ -22,53 +23,61 @@ export const SignUp: React.FC<SignUpProps> = ({ onShowLogin }) => {
       setError("Passwords do not match.");
       return;
     }
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters long.");
+      return;
+    }
+    if (!activationCode.trim()) {
+      setError("Hardware activation code is required.");
+      return;
+    }
+
+    if (signUpMethod === 'email') {
+      if (!email.trim()) {
+        setError("Email is required.");
+        return;
+      }
+      if (!email.includes('@')) {
+        setError("Please enter a valid email address.");
+        return;
+      }
+    } else {
+      if (!phone.trim()) {
+        setError("Phone number is required.");
+        return;
+      }
+      if (phone.length < 10) {
+        setError("Please enter a valid phone number.");
+        return;
+      }
+    }
+
     setLoading(true);
     setError(null);
     try {
-      // 1. Check if activation code is valid and not used
-      const cleanActivationCode = activationCode.trim();
-      const { data: codeData, error: codeError } = await supabase
-        .from('activation_codes')
-        .select('unit_id, code') // Also select the code to get the correct casing
-        .ilike('code', cleanActivationCode) // Case-insensitive search
-        .eq('is_used', false)
-        .maybeSingle();
-
-      if (codeError) throw codeError;
-      if (!codeData) {
-        throw new Error('Invalid or already used activation code.');
-      }
-
-      // 2. Sign up the user
+      // 1. Sign up the user first
       const signUpData = signUpMethod === 'email' ? { email: email, password: password } : { phone: phone, password: password };
       const { data: { user }, error: signUpError } = await supabase.auth.signUp(signUpData);
 
       if (signUpError) throw signUpError;
       if (!user) throw new Error('Sign up failed. Please try again.');
 
-      // 3. Link device to user and mark code as used
-      const { error: deviceError } = await supabase
-        .from('devices')
-        .insert({ 
-          unit_id: codeData.unit_id, 
-          owner_id: user.id, 
-          activation_code_used: codeData.code 
-        });
+      // 2. Claim the device using the shared logic
+      const result = await claimDevice(activationCode);
 
-      if (deviceError) throw deviceError;
+      if (!result.success) {
+        // If claiming fails, we inform the user but the account is created.
+        setError(`Your account was created, but the machine could not be linked. ${result.error} Please try again from the dashboard or contact support.`);
+        // We don't return here because the account is created, but we don't call onShowLogin() yet
+        // so the user can see the message.
+        return;
+      }
 
-      const { error: updateCodeError } = await supabase
-        .from('activation_codes')
-        .update({ is_used: true })
-        .eq('code', codeData.code);
-
-      if (updateCodeError) throw updateCodeError;
-
-      alert('Sign up successful! Please check your email to verify your account.');
+      alert('Account created and device linked successfully! Please check your email to verify your account.');
       onShowLogin();
 
     } catch (error: any) {
-      setError(error.message);
+      setError(error.message || 'An unexpected error occurred during signup.');
     } finally {
       setLoading(false);
     }

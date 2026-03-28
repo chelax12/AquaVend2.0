@@ -24,27 +24,26 @@ export const SalesReport: React.FC<SalesReportProps> = ({ state, activeUnitId, o
     // Calculate start of month (last 30 days)
     const startOfMonth = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000)).getTime();
 
-    const aggregate = (sinceTimestamp: number) => {
+    const aggregateSales = (sinceTimestamp: number) => {
       return state.history
         .filter(h => new Date(h.date).getTime() >= sinceTimestamp)
-        .reduce((sum, h) => sum + h.total, 0);
+        .reduce((sum, h) => sum + (h.total || 0), 0);
     };
 
     // Live stats: include current vault total in the current period
-    // We assume current vault coins were inserted today (since the last reset)
     return {
-      daily: aggregate(startOfDay) + currentVaultTotal,
-      weekly: aggregate(startOfWeek) + currentVaultTotal,
-      monthly: aggregate(startOfMonth) + currentVaultTotal,
-      allTime: state.history.reduce((sum, h) => sum + h.total, 0) + currentVaultTotal
+      daily: aggregateSales(startOfDay) + currentVaultTotal,
+      weekly: aggregateSales(startOfWeek) + currentVaultTotal,
+      monthly: aggregateSales(startOfMonth) + currentVaultTotal,
+      allTime: state.history.reduce((sum, h) => sum + (h.total || 0), 0) + currentVaultTotal
     };
-  }, [state.history, currentVaultTotal]);
+  }, [state.history, state.totalVends]);
 
   return (
     <div className="space-y-8 sm:space-y-10 animate-in">
       <header className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4 sm:gap-0">
         <div>
-          <h1 className="text-3xl sm:text-4xl font-black text-[#0f172a] tracking-tighter">AQUAVEND Terminal</h1>
+          <h1 className="text-3xl sm:text-4xl font-black text-[#0f172a] tracking-tighter">AQUAVENDO Terminal</h1>
           <p className="text-[10px] sm:text-sm text-slate-400 font-bold uppercase tracking-widest mt-1 sm:mt-2 flex items-center gap-2">
             <Database className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-blue-600" />
             Node: {activeUnitId}

@@ -29,8 +29,9 @@ import { Dashboard } from './components/Dashboard';
 import { SalesReport } from './components/SalesReport';
 
 import { supabase } from './lib/supabase';
-import { subscribeToPushNotifications } from './src/utils/push';
+import { enableWebPush } from './src/utils/push';
 import { Auth } from './src/components/auth/Auth';
+import { claimDevice } from './src/lib/deviceService';
 
 
 
@@ -43,6 +44,8 @@ const INITIAL_STATE: VendoState = {
   lastSeen: null,
   history: [],
   alerts: [],
+  totalVends: 0,
+  estimatedProfit: 0,
 };
 
 const App: React.FC = () => {
@@ -55,6 +58,30 @@ const App: React.FC = () => {
   const [session, setSession] = useState<any>(null);
   const [ignoreRealtimeUntil, setIgnoreRealtimeUntil] = useState<number>(0);
   const [alerts, setAlerts] = useState<SystemAlert[]>([]);
+  const [isSubscribing, setIsSubscribing] = useState(false);
+
+  const handleEnableNotifications = async () => {
+    if (!session?.user?.id) {
+      alert("Please log in to enable notifications.");
+      return;
+    }
+    
+    if (!activeUnitId) {
+      alert("Please select or add a machine first before enabling notifications.");
+      return;
+    }
+    
+    setIsSubscribing(true);
+    try {
+      await enableWebPush(supabase, session.user.id, activeUnitId);
+      alert("Notifications enabled successfully!");
+    } catch (error: any) {
+      console.error("Error enabling notifications:", error);
+      alert(`Failed to enable notifications: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setIsSubscribing(false);
+    }
+  };
 
   const transformDataToNewState = (data: any): VendoState => {
   if (!data) return INITIAL_STATE;
@@ -73,6 +100,8 @@ const App: React.FC = () => {
     systemAlerts: data.system_status ?? 'Offline',
     lastUpdated: data.updated_at ? new Date(data.updated_at).toLocaleTimeString() : 'N/A',
     lastSeen: data.last_seen_at ? new Date(data.last_seen_at).toLocaleString() : null,
+    totalVends: data.total_vends ?? 0,
+    estimatedProfit: data.estimated_profit ?? 0,
     // history will be loaded from collection_history
     history: [],
     alerts: [],
@@ -80,7 +109,7 @@ const App: React.FC = () => {
 };
   // Multi-machine management
   const [activeUnitId, setActiveUnitId] = useState<string>(() => {
-    return localStorage.getItem('active_unit_id') || 'AQUA-VND-001';
+    return localStorage.getItem('active_unit_id') || '';
   });
   const [unitList, setUnitList] = useState<string[]>([]);
   const [showAddUnit, setShowAddUnit] = useState(false);
@@ -101,6 +130,7 @@ const App: React.FC = () => {
         const ids = deviceData.map(d => d.unit_id);
         setUnitList(ids);
         
+        // If current active is not in the list, pick the first one
         if (!ids.includes(activeUnitId) || !activeUnitId) {
           const newActiveId = ids[0];
           setActiveUnitId(newActiveId);
@@ -208,14 +238,21 @@ const fetchHistory = useCallback(async () => {
 
     if (error) throw error;
 
-    const history = (data ?? []).map((row: any) => ({
-      id: row.id,
-      date: new Date(row.collected_at).toLocaleString(),
-      p1: row.p1_collected ?? 0,
-      p5: row.p5_collected ?? 0,
-      p10: row.p10_collected ?? 0,
-      total: Number(row.total_amount ?? 0),
-    }));
+    const history = (data ?? []).map((row: any) => {
+      const p1 = row.p1_collected ?? 0;
+      const p5 = row.p5_collected ?? 0;
+      const p10 = row.p10_collected ?? 0;
+      return {
+        id: row.id,
+        date: row.collected_at, // Store raw ISO string for reliable parsing
+        p1,
+        p5,
+        p10,
+        total: Number(row.total_amount ?? 0),
+        vends: 0,
+        estimatedProfit: p1 + p5 + p10,
+      };
+    });
 
     setState(prev => ({ ...prev, history }));
   } catch (err) {
@@ -305,65 +342,67 @@ useEffect(() => {
 }, [activeUnitId]);
 
   const handleDeleteUnit = async (unitIdToDelete: string) => {
+    if (!session?.user) return;
+
     const confirmDelete = window.confirm(
-      `Are you sure you want to permanently delete machine ${unitIdToDelete}?\n\nThis action cannot be undone.`
+      `Are you sure you want to UNLINK machine ${unitIdToDelete}?\n\nThis will remove it from your dashboard. Historical data will be preserved in the system.`
     );
     if (!confirmDelete) return;
 
     try {
-      // 1. Delete associated history records first
-      await supabase.from('collection_history').delete().eq('unit_id', unitIdToDelete);
+      // ONLY delete from devices table to remove ownership for THIS user
+      const { error: deviceError } = await supabase
+        .from('devices')
+        .delete()
+        .eq('unit_id', unitIdToDelete)
+        .eq('owner_id', session.user.id);
       
-      // 2. Delete associated system alerts
-      await supabase.from('system_alerts').delete().eq('unit_id', unitIdToDelete);
-
-      // 3. Delete from devices table to remove ownership
-      const { error: deviceError } = await supabase.from('devices').delete().eq('unit_id', unitIdToDelete);
       if (deviceError) throw deviceError;
-
-      // 4. Finally delete the state data
-      const { error: stateError } = await supabase.from('machine_state').delete().eq('unit_id', unitIdToDelete);
-      if (stateError) throw stateError;
 
       const newUnitList = unitList.filter(id => id !== unitIdToDelete);
       setUnitList(newUnitList);
 
       if (activeUnitId === unitIdToDelete) {
-        setActiveUnitId(newUnitList.length > 0 ? newUnitList[0] : 'AQUA-VND-001');
+        const nextActive = newUnitList.length > 0 ? newUnitList[0] : '';
+        setActiveUnitId(nextActive);
+        if (nextActive) {
+          localStorage.setItem('active_unit_id', nextActive);
+        } else {
+          localStorage.removeItem('active_unit_id');
+        }
       }
 
-      alert(`Machine ${unitIdToDelete} has been successfully deleted.`);
+      alert(`Machine ${unitIdToDelete} has been successfully unlinked.`);
     } catch (err: any) {
-      console.error('Delete unit error:', err);
-      alert(`Failed to delete machine: ${err.message}`);
+      console.error('Unlink unit error:', err);
+      alert(`Failed to unlink machine: ${err.message}`);
     }
   };
 
   const handleAddUnit = async () => {
     const enteredCode = newUnitInput.trim().toUpperCase();
-    if (!enteredCode) return;
+    if (!session?.user || !enteredCode) return;
 
     setIsResetting(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        throw new Error("You must be logged in to register a device.");
+      const result = await claimDevice(enteredCode);
+      
+      if (!result.success) {
+        alert(result.error || 'Failed to link machine.');
+        return;
       }
 
-      const { error } = await supabase.rpc("claim_device", { p_code: enteredCode });
-
-      if (error) {
-        throw error;
+      if (result.unit_id) {
+        setUnitList(prev => [...prev, result.unit_id!]);
+        setActiveUnitId(result.unit_id);
+        setShowAddUnit(false);
+        setNewUnitInput('');
+        alert(`Successfully linked machine ${result.unit_id}!`);
+        fetchUnits();
       }
-
-      alert(`Node ${enteredCode} successfully registered and active.`);
-      fetchUnits();
-      setNewUnitInput('');
-      setShowAddUnit(false);
-
     } catch (err: any) {
-      console.error('Register Node error:', err);
-      alert(`Error: ${err.message}`);
+      console.error('Add unit error:', err);
+      alert(`An unexpected error occurred: ${err.message}`);
     } finally {
       setIsResetting(false);
     }
@@ -377,10 +416,9 @@ useEffect(() => {
       .toUpperCase();
 
   const handleResetCounter = async () => {
-    const rawId = activeUnitId ?? "";
-    const targetNorm = normalizeId(rawId);
+    const targetId = activeUnitId;
 
-    if (!targetNorm) {
+    if (!targetId) {
       alert("Error: No active unit selected.");
       return;
     }
@@ -389,55 +427,37 @@ useEffect(() => {
     const totalVal = p1 * 1 + p5 * 5 + p10 * 10;
 
     const confirmReset = window.confirm(
-      `CONFIRM COLLECTION for ${rawId}\n\nVault Total: ₱${totalVal.toLocaleString()}\n\nThis will zero the machine coin counters and archive this transaction.`
+      `CONFIRM COLLECTION for ${targetId}\n\nVault Total: ₱${totalVal.toLocaleString()}\n\nThis will zero the machine coin counters and archive this transaction.`
     );
     if (!confirmReset) return;
 
     setIsResetting(true);
 
     try {
-      // 1) Get ALL unit_ids from DB and find the exact match robustly
-      const { data: rows, error: listErr } = await supabase
-        .from("machine_state")
-        .select("unit_id");
-
-      if (listErr) throw listErr;
-
-      const exactDbId =
-        rows?.map(r => r.unit_id).find(id => normalizeId(id) === targetNorm);
-
-      console.log("RESET raw:", JSON.stringify(rawId));
-      console.log("RESET targetNorm:", JSON.stringify(targetNorm));
-      console.log("RESET exactDbId:", JSON.stringify(exactDbId));
-
-      if (!exactDbId) {
-        throw new Error(
-          `No matching unit_id found in DB for "${rawId}". Check your DB unit_id values for spaces/casing.`
-        );
-      }
-
-      // 2) Update using EXACT DB value (guaranteed to match)
+      // We use activeUnitId directly as it is verified during the fetchUnits phase.
+      // Normalization is handled at the source (deviceService/claimDevice).
       const { data: updated, error: updateError } = await supabase
         .from("machine_state")
         .update({
           p1_count: 0,
           p5_count: 0,
           p10_count: 0,
+          total_vends: 0,
           last_reset_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
-        .eq("unit_id", exactDbId)
+        .eq("unit_id", targetId)
         .select()
         .maybeSingle();
 
       if (updateError) throw updateError;
-      if (!updated) throw new Error("Update returned no row (unexpected).");
+      if (!updated) throw new Error(`No machine state found for unit ${targetId}.`);
 
       // 3) Immediately re-check DB value (to detect overwriting)
       const { data: verify, error: verifyErr } = await supabase
         .from("machine_state")
         .select("unit_id, p1_count, p5_count, p10_count, updated_at")
-        .eq("unit_id", exactDbId)
+        .eq("unit_id", targetId)
         .maybeSingle();
 
       if (verifyErr) throw verifyErr;
@@ -453,7 +473,7 @@ useEffect(() => {
 
       // 4) Log to history
       await supabase.from('collection_history').insert([{
-          unit_id: exactDbId,
+          unit_id: targetId,
           p1_collected: p1,
           p5_collected: p5,
           p10_collected: p10,
@@ -461,20 +481,18 @@ useEffect(() => {
           collected_at: new Date().toISOString()
       }]);
 
-
-
       // Set ignore window for realtime updates (5 seconds)
       setIgnoreRealtimeUntil(Date.now() + 5000);
 
       // 5) Log the reset event as a system alert
       await supabase.from('system_alerts').insert([{
-        unit_id: exactDbId,
+        unit_id: targetId,
         type: 'Counter Reset',
         message: `Coin counters were reset. Collected a total of ₱${totalVal.toLocaleString()}.`,
         severity: 'low'
       }]);
 
-      alert(`Success: Counters for ${exactDbId} reset to ₱0.`);
+      alert(`Success: Counters for ${targetId} reset to ₱0.`);
     } catch (err: any) {
       console.error("RESET FAILED:", err);
       alert(`RESET FAILED: ${err?.message ?? String(err)}`);
@@ -531,6 +549,7 @@ useEffect(() => {
     if (!confirmClear) return;
 
     try {
+      // NOTE: Backend RLS must ensure only the owner can delete their own machine's history
       const { error } = await supabase
         .from('collection_history')
         .delete()
@@ -556,6 +575,7 @@ useEffect(() => {
     if (!confirmClear) return;
 
     try {
+      // NOTE: Backend RLS must ensure only the owner can delete their own machine's alerts
       const { error } = await supabase
         .from('system_alerts')
         .delete()
@@ -578,13 +598,14 @@ useEffect(() => {
       return;
     }
 
-    const headers = ['Date', 'P1 Collected', 'P5 Collected', 'P10 Collected', 'Total Amount'];
+    const headers = ['Date', 'P1 Collected', 'P5 Collected', 'P10 Collected', 'Total Amount', 'Estimated Profit'];
     const rows = state.history.map(h => [
-      h.date,
+      new Date(h.date).toLocaleString(),
       h.p1,
       h.p5,
       h.p10,
-      h.total
+      h.total,
+      h.estimatedProfit
     ]);
 
     const csvContent = [
@@ -604,6 +625,26 @@ useEffect(() => {
   }, [state.history, activeUnitId]);
 
   const renderSection = () => {
+    if (unitList.length === 0 && activeSection !== Section.SETTINGS) {
+      return (
+        <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-8 animate-in">
+          <div className="w-24 h-24 bg-slate-100 rounded-[32px] flex items-center justify-center text-slate-400">
+            <Monitor size={48} />
+          </div>
+          <div className="text-center space-y-2">
+            <h2 className="text-2xl font-black text-slate-900 tracking-tight">No vending machines linked yet</h2>
+            <p className="text-slate-500 font-medium max-w-xs mx-auto">Add your first machine using a hardware activation code to start monitoring it.</p>
+          </div>
+          <button 
+            onClick={() => setShowAddUnit(true)}
+            className="px-10 py-5 bg-blue-600 text-white font-black text-[11px] uppercase tracking-widest rounded-[24px] shadow-xl shadow-blue-200 hover:scale-105 transition-all"
+          >
+            Add Your First Machine
+          </button>
+        </div>
+      );
+    }
+
     switch (activeSection) {
       case Section.DASHBOARD:
         return <Dashboard state={state} alerts={alerts} activeUnitId={activeUnitId} onReset={fetchAllData} onResetCounter={handleResetCounter} onResetChangeBank={handleResetChangeBank} onClearAlerts={handleClearAlerts} onExport={handleExport} isResetting={isResetting} />;
@@ -688,8 +729,8 @@ useEffect(() => {
                         <Activity size={18} />
                       </div>
                       <div className="flex flex-col">
-                        <span className="text-xs font-bold text-slate-700">{h.date.split(',')[0]}</span>
-                        <span className="text-[10px] text-slate-400 font-medium">{h.date.split(',')[1]}</span>
+                        <span className="text-xs font-bold text-slate-700">{new Date(h.date).toLocaleDateString()}</span>
+                        <span className="text-[10px] text-slate-400 font-medium">{new Date(h.date).toLocaleTimeString()}</span>
                       </div>
                     </div>
                     <span className="text-lg font-black text-emerald-600">₱{h.total.toLocaleString()}</span>
@@ -698,6 +739,10 @@ useEffect(() => {
                     <span className="text-[10px] font-black text-blue-600">₱1: {h.p1}</span>
                     <span className="text-[10px] font-black text-emerald-600">₱5: {h.p5}</span>
                     <span className="text-[10px] font-black text-violet-600">₱10: {h.p10}</span>
+                  </div>
+                  <div className="flex items-center justify-between px-4 py-1">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Profit:</span>
+                    <span className="text-[10px] font-black text-violet-600">₱{h.estimatedProfit.toLocaleString()}</span>
                   </div>
                 </div>
               ))}
@@ -710,6 +755,7 @@ useEffect(() => {
                         <tr className="bg-slate-50/50">
                             <th className="px-10 py-8 text-[11px] font-black text-slate-400 uppercase tracking-widest">Collection Event</th>
                             <th className="px-10 py-8 text-[11px] font-black text-slate-400 uppercase tracking-widest text-center">Coin Breakdown</th>
+                            <th className="px-10 py-8 text-[11px] font-black text-slate-400 uppercase tracking-widest text-center">Profit</th>
                             <th className="px-10 py-8 text-[11px] font-black text-slate-400 uppercase tracking-widest text-right">Amount Settled</th>
                         </tr>
                     </thead>
@@ -724,8 +770,8 @@ useEffect(() => {
                                       <ShieldCheck size={20} />
                                     </div>
                                     <div className="flex flex-col">
-                                      <span className="text-sm font-bold text-slate-700">{h.date.split(',')[0]}</span>
-                                      <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest">{h.date.split(',')[1]}</span>
+                                      <span className="text-sm font-bold text-slate-700">{new Date(h.date).toLocaleDateString()}</span>
+                                      <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest">{new Date(h.date).toLocaleTimeString()}</span>
                                     </div>
                                   </div>
                                 </td>
@@ -737,6 +783,9 @@ useEffect(() => {
                                     <span className="w-1 h-1 rounded-full bg-slate-300" />
                                     <span className="text-xs font-black text-violet-600">₱10:{h.p10}</span>
                                   </div>
+                                </td>
+                                <td className="px-10 py-8 text-center">
+                                  <span className="text-sm font-black text-violet-600">₱{h.estimatedProfit.toLocaleString()}</span>
                                 </td>
                                 <td className="px-10 py-8 text-right">
                                   <span className="text-xl font-black text-emerald-600 tracking-tight">₱{h.total.toLocaleString()}</span>
@@ -790,7 +839,20 @@ useEffect(() => {
                   <div>
                     <h4 className="font-black text-slate-900 text-lg sm:text-xl tracking-tight">Real-Time Alerts</h4>
                     <p className="text-xs sm:text-sm text-slate-500 mt-1 font-medium italic opacity-70">Enable push notifications to receive alerts on your device.</p>
-                    <button onClick={subscribeToPushNotifications} className="mt-4 px-5 sm:px-6 py-2.5 sm:py-3 bg-green-600 text-white font-black text-[10px] sm:text-[11px] uppercase tracking-widest rounded-full sm:rounded-[24px] shadow-xl shadow-green-200">Enable Notifications</button>
+                    <button 
+                      onClick={handleEnableNotifications} 
+                      disabled={isSubscribing}
+                      className={`mt-4 px-5 sm:px-6 py-2.5 sm:py-3 bg-green-600 text-white font-black text-[10px] sm:text-[11px] uppercase tracking-widest rounded-full sm:rounded-[24px] shadow-xl shadow-green-200 flex items-center gap-2 ${isSubscribing ? 'opacity-70 cursor-not-allowed' : ''}`}
+                    >
+                      {isSubscribing ? (
+                        <>
+                          <Loader2 className="animate-spin" size={14} />
+                          Enabling...
+                        </>
+                      ) : (
+                        'Enable Notifications'
+                      )}
+                    </button>
                   </div>
                 </div>
 
@@ -821,32 +883,59 @@ useEffect(() => {
               <Droplets size={32} />
             </div>
             <div>
-              <h2 className="font-black text-white text-2xl tracking-tighter">AQUAFLOW</h2>
+              <h2 className="font-black text-white text-2xl tracking-tighter">AQUAVENDO</h2>
               <p className="text-[10px] font-black text-blue-400 uppercase tracking-[0.3em] leading-none">Management Fleet</p>
             </div>
           </div>
           
-          <nav className="flex-1 px-8 space-y-3 mt-12 overflow-y-auto no-scrollbar">
-            {NAV_ITEMS.map((item) => (
+          <nav className="flex-1 px-8 space-y-8 mt-12 overflow-y-auto no-scrollbar pb-10">
+            {/* Main Navigation Menu */}
+            <div className="space-y-2">
+              <p className="px-8 mb-3 text-[10px] font-black text-slate-500 uppercase tracking-[0.3em]">Control Panel</p>
+              {NAV_ITEMS.map((item) => (
+                <button 
+                  key={item.id} 
+                  onClick={() => { setActiveSection(item.id as Section); setIsSidebarOpen(false); }} 
+                  className={`w-full flex items-center gap-5 px-8 py-4 rounded-[24px] transition-all duration-300 ${activeSection === item.id ? 'bg-blue-600 text-white font-bold shadow-xl shadow-blue-600/20' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}
+                >
+                  <span className={activeSection === item.id ? 'text-white' : 'text-slate-500'}>{item.icon}</span>
+                  <span className="text-[14px] font-bold tracking-tight">{item.label}</span>
+                  {activeSection === item.id && <ArrowRight size={14} className="ml-auto opacity-40" />}
+                </button>
+              ))}
+            </div>
+
+            {/* Machine Selection Section */}
+            <div className="space-y-2 pt-6 border-t border-white/5">
+              <p className="px-8 mb-3 text-[10px] font-black text-slate-500 uppercase tracking-[0.3em]">Select Machine</p>
+              {unitList.map((unit) => (
+                <button 
+                  key={unit} 
+                  onClick={() => { setActiveUnitId(unit); setIsSidebarOpen(false); }} 
+                  className={`w-full flex items-center gap-5 px-8 py-4 rounded-[24px] transition-all duration-300 ${activeUnitId === unit ? 'bg-slate-800/50 text-white font-bold border border-white/5' : 'text-slate-500 hover:bg-white/5 hover:text-white'}`}
+                >
+                  <span className={activeUnitId === unit ? 'text-blue-400' : 'text-slate-600'}><Monitor size={18} /></span>
+                  <span className="text-[14px] font-bold tracking-tight">{unit}</span>
+                  {activeUnitId === unit && <CheckCircle2 size={14} className="ml-auto text-emerald-500 opacity-60" />}
+                </button>
+              ))}
+              
               <button 
-                key={item.id} 
-                onClick={() => { setActiveSection(item.id as Section); setIsSidebarOpen(false); }} 
-                className={`w-full flex items-center gap-5 px-8 py-5 rounded-[28px] transition-all duration-300 ${activeSection === item.id ? 'bg-blue-600 text-white font-bold shadow-2xl shadow-blue-600/30' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}
+                onClick={() => { setShowAddUnit(true); setIsSidebarOpen(false); }}
+                className="w-full flex items-center gap-5 px-8 py-4 rounded-[24px] border-2 border-dashed border-white/5 text-slate-600 hover:border-blue-500/30 hover:text-blue-400 transition-all duration-300 mt-2"
               >
-                <span className={activeSection === item.id ? 'text-white' : 'text-slate-500'}>{item.icon}</span>
-                <span className="text-[15px] font-bold tracking-tight">{item.label}</span>
-                {activeSection === item.id && <ArrowRight size={14} className="ml-auto opacity-40" />}
+                <Plus size={18} />
+                <span className="text-[14px] font-bold tracking-tight">Add Machine</span>
               </button>
-            ))}
+            </div>
           </nav>
 
           <div className="p-10 mt-auto">
             <button 
               onClick={async () => {
                 await supabase.auth.signOut();
-                // The onAuthStateChange listener will handle the session update
               }} 
-              className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-red-500/10 text-red-500 font-black text-[11px] uppercase tracking-widest rounded-2xl hover:bg-red-500 hover:text-white transition-all shadow-lg"
+              className="w-full flex items-center justify-center gap-3 px-6 py-5 bg-red-500/10 text-red-500 font-black text-[11px] uppercase tracking-widest rounded-[24px] hover:bg-red-500 hover:text-white transition-all shadow-lg"
             >
               <LogOut size={16} /> Close Terminal
             </button>
@@ -863,6 +952,9 @@ useEffect(() => {
             </button>
             
             <div className="flex items-center gap-1.5 sm:gap-3 bg-slate-50 p-1 rounded-full border border-slate-100 overflow-x-auto no-scrollbar shadow-inner min-w-0">
+                {unitList.length === 0 && (
+                  <span className="px-4 py-2 text-[8px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">No machine linked</span>
+                )}
                 {unitList.map(unit => (
                    <button 
                     key={unit} 
@@ -894,41 +986,25 @@ useEffect(() => {
           {renderSection()}
         </div>
 
-        {/* Bottom Navigation for Mobile */}
-        <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-xl border-t border-slate-100 px-6 py-4 flex justify-between items-center z-40 shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
-          {NAV_ITEMS.map((item) => (
-            <button 
-              key={item.id} 
-              onClick={() => setActiveSection(item.id as Section)} 
-              className={`flex flex-col items-center gap-1 transition-all ${activeSection === item.id ? 'text-blue-600 scale-110' : 'text-slate-400'}`}
-            >
-              <div className={`p-2 rounded-xl ${activeSection === item.id ? 'bg-blue-50' : ''}`}>
-                {React.cloneElement(item.icon as React.ReactElement<any>, { size: 20 })}
-              </div>
-              <span className="text-[9px] font-black uppercase tracking-widest">{item.label.split(' ')[0]}</span>
-            </button>
-          ))}
-        </nav>
-
         {/* Modal for Adding Unit */}
         {showAddUnit && (
           <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-md">
             <div className="bg-white rounded-[48px] p-12 shadow-2xl w-full max-w-md border border-slate-100">
-               <h3 className="text-2xl font-black text-slate-900 tracking-tight mb-8">Add Monitoring Node</h3>
+               <h3 className="text-2xl font-black text-slate-900 tracking-tight mb-8">Add Vending Machine</h3>
                <div className="space-y-6">
                   <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-4 mb-2 block">Vending Machine ID</label>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-4 mb-2 block">Hardware Activation Code</label>
                     <input 
                       type="text" 
                       value={newUnitInput}
                       onChange={(e) => setNewUnitInput(e.target.value.toUpperCase())}
-                      placeholder="e.g. AQUA-VND-002"
+                      placeholder="e.g. DEF-456-UVW"
                       className="w-full px-8 py-5 bg-slate-50 border border-slate-100 rounded-[28px] font-bold text-slate-700 focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all"
                     />
                   </div>
                   <div className="flex gap-4">
                     <button onClick={() => setShowAddUnit(false)} className="flex-1 py-5 bg-slate-100 text-slate-500 font-black text-[11px] uppercase tracking-widest rounded-[24px]">Cancel</button>
-                    <button onClick={handleAddUnit} className="flex-1 py-5 bg-blue-600 text-white font-black text-[11px] uppercase tracking-widest rounded-[24px] shadow-xl shadow-blue-200">Register Node</button>
+                    <button onClick={handleAddUnit} className="flex-1 py-5 bg-blue-600 text-white font-black text-[11px] uppercase tracking-widest rounded-[24px] shadow-xl shadow-blue-200">Add Machine</button>
                   </div>
                </div>
             </div>
@@ -936,10 +1012,12 @@ useEffect(() => {
         )}
 
         <footer className="px-16 py-10 border-t border-slate-100 flex flex-col sm:flex-row justify-between items-center text-slate-400 text-[10px] font-black uppercase tracking-[0.3em]">
-          <p>© 2025 Aquavend Fleet Services</p>
+          <p>© 2025 Aquavendo Fleet Services</p>
           <div className="flex gap-8 mt-4 sm:mt-0">
              <span>Protocol v5.2.0</span>
-             <span className={dbStatus === 'connected' ? 'text-emerald-500' : 'text-red-500'}>{activeUnitId}: {dbStatus.toUpperCase()}</span>
+             <span className={dbStatus === 'connected' ? 'text-emerald-500' : 'text-red-500'}>
+               {activeUnitId ? `${activeUnitId}: ${dbStatus.toUpperCase()}` : 'No active machine'}
+             </span>
           </div>
         </footer>
       </main>
