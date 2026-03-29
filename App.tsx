@@ -872,11 +872,11 @@ useEffect(() => {
     <div className="min-h-screen flex bg-[#f8fafc] text-slate-900 selection:bg-blue-100 selection:text-blue-600">
       {/* Sidebar Overlay */}
       {isSidebarOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 lg:hidden" onClick={() => setIsSidebarOpen(false)} />
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[110] lg:hidden" onClick={() => setIsSidebarOpen(false)} />
       )}
 
       {/* Industrial Sidebar */}
-      <aside className={`fixed inset-y-0 left-0 z-50 w-80 bg-[#0f172a] transform transition-transform duration-500 ease-in-out lg:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+      <aside className={`fixed inset-y-0 left-0 z-[120] w-80 bg-[#0f172a] transform transition-transform duration-500 ease-in-out lg:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="flex flex-col h-full">
           <div className="p-12 flex items-center gap-5">
             <div className="w-14 h-14 bg-blue-600 rounded-[24px] flex items-center justify-center text-white shadow-2xl shadow-blue-600/30">

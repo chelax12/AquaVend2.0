@@ -8,9 +8,7 @@ interface SignUpProps {
 }
 
 export const SignUp: React.FC<SignUpProps> = ({ onShowLogin }) => {
-  const [signUpMethod, setSignUpMethod] = useState<'email' | 'phone'>('email');
   const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [activationCode, setActivationCode] = useState('');
@@ -32,32 +30,20 @@ export const SignUp: React.FC<SignUpProps> = ({ onShowLogin }) => {
       return;
     }
 
-    if (signUpMethod === 'email') {
-      if (!email.trim()) {
-        setError("Email is required.");
-        return;
-      }
-      if (!email.includes('@')) {
-        setError("Please enter a valid email address.");
-        return;
-      }
-    } else {
-      if (!phone.trim()) {
-        setError("Phone number is required.");
-        return;
-      }
-      if (phone.length < 10) {
-        setError("Please enter a valid phone number.");
-        return;
-      }
+    if (!email.trim()) {
+      setError("Email is required.");
+      return;
+    }
+    if (!email.includes('@')) {
+      setError("Please enter a valid email address.");
+      return;
     }
 
     setLoading(true);
     setError(null);
     try {
       // 1. Sign up the user first
-      const signUpData = signUpMethod === 'email' ? { email: email, password: password } : { phone: phone, password: password };
-      const { data: { user }, error: signUpError } = await supabase.auth.signUp(signUpData);
+      const { data: { user }, error: signUpError } = await supabase.auth.signUp({ email: email, password: password });
 
       if (signUpError) throw signUpError;
       if (!user) throw new Error('Sign up failed. Please try again.');
@@ -90,11 +76,6 @@ export const SignUp: React.FC<SignUpProps> = ({ onShowLogin }) => {
         <p className="text-sm text-slate-500 mt-1">Register your hardware to begin</p>
       </div>
 
-      <div className="flex justify-center bg-slate-100 p-1.5 rounded-full mb-8">
-        <button onClick={() => setSignUpMethod('email')} className={`flex-1 px-4 py-2 rounded-full text-xs font-black uppercase tracking-widest transition-all ${signUpMethod === 'email' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>Email</button>
-        <button onClick={() => setSignUpMethod('phone')} className={`flex-1 px-4 py-2 rounded-full text-xs font-black uppercase tracking-widest transition-all ${signUpMethod === 'phone' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>Phone</button>
-      </div>
-
       <form onSubmit={handleSignUp} className="space-y-5">
         <div className="relative">
           <ShieldCheck className="absolute top-1/2 left-5 -translate-y-1/2 text-slate-400" size={20} />
@@ -106,29 +87,16 @@ export const SignUp: React.FC<SignUpProps> = ({ onShowLogin }) => {
             placeholder="Hardware Activation Code"
           />
         </div>
-        {signUpMethod === 'email' ? (
-          <div className="relative">
-            <Mail className="absolute top-1/2 left-5 -translate-y-1/2 text-slate-400" size={20} />
-            <input 
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full p-4 pl-14 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all font-bold text-slate-700"
-              placeholder="you@example.com"
-            />
-          </div>
-        ) : (
-          <div className="relative">
-            <Phone className="absolute top-1/2 left-5 -translate-y-1/2 text-slate-400" size={20} />
-            <input 
-              type="tel"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              className="w-full p-4 pl-14 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all font-bold text-slate-700"
-              placeholder="+63 912 345 6789"
-            />
-          </div>
-        )}
+        <div className="relative">
+          <Mail className="absolute top-1/2 left-5 -translate-y-1/2 text-slate-400" size={20} />
+          <input 
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="w-full p-4 pl-14 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all font-bold text-slate-700"
+            placeholder="you@example.com"
+          />
+        </div>
         <div className="relative">
           <KeyRound className="absolute top-1/2 left-5 -translate-y-1/2 text-slate-400" size={20} />
           <input 

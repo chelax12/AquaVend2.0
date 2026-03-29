@@ -258,7 +258,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <StatsCard 
             title="ESTIMATED PROFIT" 
             value={`₱${estimatedProfit.toLocaleString()}`} 
-            subtitle={`${state.totalVends || 0} PCS`} 
             icon={<Zap size={28} className="text-violet-600" />} 
             iconBgColor="bg-violet-600" 
             textColor="text-slate-900" 
